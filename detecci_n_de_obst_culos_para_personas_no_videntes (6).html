@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asistente Ultrarrápido para Personas No Videntes - Detección de Obstáculos</title>
+
+  <!-- Tailwind CSS para diseño accesible de alto contraste -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- TensorFlow.js y Teachable Machine Image Library (Versiones Cdn altamente estables) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.4/dist/teachablemachine-image.min.js"></script>
+
+  <style>
+    /* Estilos de enfoque y alerta visual para alto contraste */
+    :focus-visible {
+      outline: 4px solid #facc15 !important;
+      outline-offset: 4px !important;
+    }
+
+    .alert-card-warning {
+      background-color: #450a0a;
+      border: 4px solid #ef4444;
+    }
+
+    .alert-card-clear {
+      background-color: #052e16;
+      border: 4px solid #22c55e;
+    }
+
+    .pulse-danger {
+      animation: pulse-border 0.8s infinite alternate;
+    }
+
+    @keyframes pulse-border {
+      0% {
+        border-color: #ef4444;
+        box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
+      }
+      100% {
+        border-color: #facc15;
+        box-shadow: 0 0 30px rgba(250, 204, 21, 0.9);
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col justify-between p-4 sm:p-6">
+
+  <!-- Encabezado Accesible -->
+  <header class="max-w-4xl mx-auto w-full text-center my-2">
+    <h1 class="text-3xl sm:text-5xl font-black text-yellow-400 tracking-wide mb-1">
+      ⚡ Asistente Visual Rápido
+    </h1>
+    <p class="text-base sm:text-xl text-slate-300 font-medium">
+      Detección de obstáculos con respuesta sonora en milisegundos.
+    </p>
+  </header>
+
+  <!-- Contenedor Principal -->
+  <main class="max-w-4xl mx-auto w-full flex-1 flex flex-col items-center justify-center gap-5">
+
+    <!-- Tarjeta de Estado Principal de Alta Visibilidad y Lector de Pantalla -->
+    <section aria-label="Estado de alerta actual" class="w-full">
+      <div 
+        id="status-box" 
+        role="alert" 
+        aria-live="assertive" 
+        aria-atomic="true"
+        class="bg-slate-900 border-4 border-sky-400 rounded-3xl p-6 sm:p-8 text-center shadow-2xl transition-all"
+      >
+        <p id="status-text" class="text-3xl sm:text-6xl font-black text-sky-300 tracking-tight">
+          PRESIONA INICIAR
+        </p>
+        <p id="substatus-text" class="text-lg sm:text-2xl text-slate-300 mt-3 font-semibold">
+          El sistema emitirá un beep inmediato y alertas de voz aceleradas.
+        </p>
+      </div>
+    </section>
+
+    <!-- Botones de Control Principal -->
+    <section aria-label="Controles principales" class="w-full flex flex-col sm:flex-row gap-4 justify-center">
+      <button 
+        id="btn-start" 
+        onclick="toggleAssistant()" 
+        class="w-full sm:w-auto flex-1 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-2xl sm:text-3xl py-5 px-8 rounded-2xl shadow-2xl transform active:scale-95 transition focus:ring-4 focus:ring-yellow-300 cursor-pointer text-center"
+        aria-label="Iniciar o Detener Asistente de Navegación"
+      >
+        ▶️ INICIAR ASISTENTE
+      </button>
+
+      <button 
+        id="btn-switch-camera" 
+        onclick="switchCamera()" 
+        disabled 
+        class="hidden w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-sky-400 border-2 border-sky-400 font-bold text-xl py-5 px-6 rounded-2xl transition disabled:opacity-40 cursor-pointer"
+        aria-label="Cambiar entre cámara frontal y trasera"
+      >
+        🔄 Cambiar Cámara
+      </button>
+    </section>
+
+    <!-- Ajustes Rápidos de Velocidad y Sensibilidad -->
+    <section aria-label="Configuración de velocidad y sensibilidad" class="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+      <div>
+        <label for="select-cooldown" class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+          Intervalo de Repetición:
+        </label>
+        <select id="select-cooldown" class="w-full bg-slate-950 border border-slate-700 text-yellow-400 font-bold text-lg rounded-xl p-2.5 focus:ring-2 focus:ring-yellow-400 text-center">
+          <option value="400">Ultrarrápido (0.4s)</option>
+          <option value="600" selected>Rápido Recomendado (0.6s)</option>
+          <option value="800">Normal (0.8s)</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="select-rate" class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+          Velocidad de Voz:
+        </label>
+        <select id="select-rate" class="w-full bg-slate-950 border border-slate-700 text-yellow-400 font-bold text-lg rounded-xl p-2.5 focus:ring-2 focus:ring-yellow-400 text-center">
+          <option value="1.15">1.15x (Clara)</option>
+          <option value="1.3" selected>1.30x (Acelerada Agil)</option>
+          <option value="1.5">1.50x (Ultra Acelerada)</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="select-threshold" class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+          Sensibilidad de Detección:
+        </label>
+        <select id="select-threshold" onchange="updateThreshold(this.value)" class="w-full bg-slate-950 border border-slate-700 text-yellow-400 font-bold text-lg rounded-xl p-2.5 focus:ring-2 focus:ring-yellow-400 text-center">
+          <option value="0.50">Alta (50% de certeza)</option>
+          <option value="0.60" selected>Equilibrada (60%)</option>
+          <option value="0.75">Estricta (75%)</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Visualización de Cámara y Lecturas -->
+    <section aria-label="Visualización de cámara y mediciones" class="w-full grid grid-cols-1 md:grid-cols-2 gap-5 items-center">
+      
+      <!-- Visor de la Cámara -->
+      <div class="relative bg-black rounded-2xl overflow-hidden border-4 border-slate-800 min-h-[260px] flex items-center justify-center shadow-inner">
+        <div id="webcam-container" class="w-full h-full flex items-center justify-center overflow-hidden">
+          <p class="text-slate-500 text-center p-4 font-medium" id="webcam-placeholder">
+            La cámara se activará al iniciar.
+          </p>
+        </div>
+        <div id="live-badge" class="hidden absolute top-3 left-3 bg-red-600 text-white font-black px-3 py-1 rounded-full text-xs animate-pulse flex items-center gap-1.5">
+          <span class="w-2 h-2 bg-white rounded-full"></span> EN VIVO
+        </div>
+      </div>
+
+      <!-- Predicciones en Pantalla -->
+      <div class="bg-slate-900 border-2 border-slate-800 rounded-2xl p-5 flex flex-col justify-between h-full min-h-[260px]">
+        <div>
+          <h2 class="text-lg font-bold text-yellow-400 mb-3 border-b border-slate-800 pb-2">
+            Medición de Certeza en Tiempo Real
+          </h2>
+          <div id="label-container" class="space-y-2.5">
+            <p class="text-slate-500 text-sm italic">Esperando inicio...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Caja de Ayuda / Diagnóstico de Carga Local -->
+    <section id="error-help" class="hidden w-full bg-red-950 border-2 border-red-500 rounded-2xl p-5 text-red-200">
+      <h3 class="text-lg font-bold text-red-400 mb-1">⚠️ Error de carga del modelo local</h3>
+      <p id="error-details" class="text-sm text-red-300 font-semibold mb-3"></p>
+      <p class="text-xs text-red-200">
+        Recuerda ejecutar esta aplicación con un servidor local (ej. <strong>Live Server</strong> en VS Code o <code class="bg-red-900 px-1 py-0.5 rounded">npx serve</code>) para que el navegador pueda acceder a la carpeta <code class="bg-red-900 px-1 py-0.5 rounded">./mi-modelo/</code> (model.json, metadata.json, weights.bin).
+      </p>
+    </section>
+
+  </main>
+
+  <footer class="max-w-4xl mx-auto w-full text-center mt-6 text-slate-500 text-xs">
+    <p>Diseñado para máxima velocidad y seguridad auditiva en personas no videntes.</p>
+  </footer>
+
+  <script>
+    // Configuración local del modelo
+    const URL_MODELO = "./mi-modelo/";
+    let currentThreshold = 0.60;
+
+    let model, webcam, maxPredictions;
+    let isRunning = false;
+    let currentFacingMode = 'environment'; // Prioriza cámara trasera en móviles
+
+    // Sistema de Audio Sintético Inmediato (Web Audio API)
+    let audioCtx = null;
+
+    // Control de síntesis de voz y estados
+    let activeDetectedState = null;
+    let isSpeaking = false;
+    let speechLoopTimeout = null;
+
+    // Palabras clave asociadas a "Camino Libre"
+    const CLEAR_KEYWORDS = [
+      "nada", "fondo", "background", "ninguno", "ninguna", 
+      "sin obstaculo", "sin obstáculo", "camino libre", "vacio", "vacío"
+    ];
+
+    // Elementos DOM
+    const btnStart = document.getElementById('btn-start');
+    const btnSwitchCamera = document.getElementById('btn-switch-camera');
+    const statusBox = document.getElementById('status-box');
+    const statusText = document.getElementById('status-text');
+    const substatusText = document.getElementById('substatus-text');
+    const webcamContainer = document.getElementById('webcam-container');
+    const labelContainer = document.getElementById('label-container');
+    const liveBadge = document.getElementById('live-badge');
+    const errorHelp = document.getElementById('error-help');
+    const errorDetails = document.getElementById('error-details');
+    const selectCooldown = document.getElementById('select-cooldown');
+    const selectRate = document.getElementById('select-rate');
+
+    /**
+     * Inicializa o detiene la aplicación
+     */
+    async function toggleAssistant() {
+      if (!isRunning) {
+        await initAssistant();
+      } else {
+        stopAssistant();
+      }
+    }
+
+    /**
+     * Emite un Beep instantáneo (<10ms) usando Web Audio API para advertencia auditiva inmediata
+     */
+    function playInstantBeep(frequency = 880, duration = 0.08) {
+      try {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) audioCtx = new AudioContextClass();
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        if (!audioCtx) return;
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(frequency, audioCtx.currentTime); // 880Hz = Nota A5 alta
+
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {
+        console.warn("Web Audio API beep error:", e);
+      }
+    }
+
+    /**
+     * Carga el modelo TensorFlow.js y configura la cámara
+     */
+    async function initAssistant() {
+      try {
+        errorHelp.classList.add('hidden');
+        btnStart.disabled = true;
+        btnStart.textContent = "⌛ CARGANDO MODELO...";
+        statusText.textContent = "CARGANDO...";
+        statusText.className = "text-3xl sm:text-5xl font-black text-yellow-400 animate-pulse";
+
+        // Inicializar contexto de audio con gesto de usuario
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) audioCtx = new AudioContextClass();
+        }
+
+        if (typeof tmImage === 'undefined') {
+          throw new Error("No se pudo cargar la librería tmImage de Teachable Machine.");
+        }
+
+        const modelURL = URL_MODELO + "model.json";
+        const metadataURL = URL_MODELO + "metadata.json";
+
+        // Cargar modelo de Teachable Machine
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+
+        // Configuración ultrarrápida de la webcam (resolución compacta 320x320 para rápido FPS)
+        const flip = (currentFacingMode === 'user');
+        webcam = new tmImage.Webcam(320, 320, flip);
+        await webcam.setup({ facingMode: currentFacingMode });
+        await webcam.play();
+
+        webcamContainer.innerHTML = '';
+        webcamContainer.appendChild(webcam.canvas);
+        webcam.canvas.className = "w-full h-full object-cover rounded-xl";
+
+        // Preparar visualizadores de porcentaje
+        labelContainer.innerHTML = '';
+        for (let i = 0; i < maxPredictions; i++) {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'space-y-1';
+
+          const header = document.createElement('div');
+          header.className = 'flex justify-between text-xs font-bold text-slate-200';
+          header.id = `label-title-${i}`;
+
+          const bgBar = document.createElement('div');
+          bgBar.className = 'w-full bg-slate-800 h-3 rounded-full overflow-hidden';
+
+          const fillBar = document.createElement('div');
+          fillBar.id = `label-bar-${i}`;
+          fillBar.className = 'bg-sky-400 h-full transition-all duration-150 rounded-full w-0';
+
+          bgBar.appendChild(fillBar);
+          wrapper.appendChild(header);
+          wrapper.appendChild(bgBar);
+          labelContainer.appendChild(wrapper);
+        }
+
+        isRunning = true;
+        btnStart.disabled = false;
+        btnStart.textContent = "⏹️ DETENER ASISTENTE";
+        btnStart.classList.replace('bg-yellow-400', 'bg-red-600');
+        btnStart.classList.replace('hover:bg-yellow-300', 'hover:bg-red-500');
+        btnStart.classList.replace('text-slate-950', 'text-white');
+
+        btnSwitchCamera.classList.remove('hidden');
+        btnSwitchCamera.disabled = false;
+        liveBadge.classList.remove('hidden');
+
+        substatusText.textContent = "Monitoreando entorno activamente...";
+
+        // Tono y aviso inicial
+        playInstantBeep(1000, 0.1);
+        speakTextImmediate("Asistente listo");
+
+        // Iniciar bucle requestAnimationFrame optimizado
+        window.requestAnimationFrame(loop);
+
+      } catch (error) {
+        console.error("Error al iniciar:", error);
+        btnStart.disabled = false;
+        btnStart.textContent = "▶️ REINTENTAR INICIO";
+        statusText.textContent = "ERROR AL CARGAR";
+        statusText.className = "text-3xl sm:text-5xl font-black text-red-500";
+        errorDetails.textContent = error.message || "Asegúrate de que la carpeta ./mi-modelo/ exista y contenga los 3 archivos.";
+        errorHelp.classList.remove('hidden');
+      }
+    }
+
+    /**
+     * Bucle optimizado con requestAnimationFrame
+     */
+    async function loop() {
+      if (isRunning) {
+        webcam.update();
+        await predict();
+        window.requestAnimationFrame(loop);
+      }
+    }
+
+    /**
+     * Evaluación de predicción con respuesta instantánea
+     */
+    async function predict() {
+      const prediction = await model.predict(webcam.canvas);
+      let highestPrediction = null;
+
+      // Actualización rápida de barras UI
+      for (let i = 0; i < maxPredictions; i++) {
+        const className = prediction[i].className;
+        const probability = prediction[i].probability;
+        const percentage = (probability * 100).toFixed(0);
+
+        const titleEl = document.getElementById(`label-title-${i}`);
+        const barEl = document.getElementById(`label-bar-${i}`);
+
+        if (titleEl && barEl) {
+          titleEl.textContent = `${className}: ${percentage}%`;
+          barEl.style.width = `${percentage}%`;
+
+          if (probability >= currentThreshold) {
+            barEl.className = 'bg-yellow-400 h-full rounded-full';
+          } else {
+            barEl.className = 'bg-sky-500 h-full rounded-full';
+          }
+        }
+
+        if (!highestPrediction || probability > highestPrediction.probability) {
+          highestPrediction = prediction[i];
+        }
+      }
+
+      // Evaluar la detección ganadora
+      let detectedState = "CLEAR_PATH";
+
+      if (highestPrediction && highestPrediction.probability >= currentThreshold) {
+        const rawName = highestPrediction.className.trim();
+        const lowerName = rawName.toLowerCase();
+
+        const isClear = CLEAR_KEYWORDS.some(kw => lowerName.includes(kw));
+        if (!isClear) {
+          detectedState = rawName;
+        }
+      }
+
+      // Si hay un CAMBIO INSTANTÁNEO de objeto, cancelar audio anterior de inmediato y emitir la nueva alerta
+      if (detectedState !== activeDetectedState) {
+        activeDetectedState = detectedState;
+        triggerImmediateAlertChange();
+      }
+    }
+
+    /**
+     * Interrupción inmediata de voz y tono de aviso en milisegundos
+     */
+    function triggerImmediateAlertChange() {
+      if (!isRunning) return;
+
+      // Cancelar cualquier discurso previo en milisegundos
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      if (speechLoopTimeout) {
+        clearTimeout(speechLoopTimeout);
+      }
+
+      isSpeaking = false;
+
+      // Si es un obstáculo, emitir BEEP instantáneo antes de la voz
+      if (activeDetectedState !== "CLEAR_PATH") {
+        playInstantBeep(900, 0.07);
+      }
+
+      speakCurrentAlert();
+    }
+
+    /**
+     * Genera la frase ultracorta y acelerada específica para cada objeto
+     */
+    function speakCurrentAlert() {
+      if (!isRunning || isSpeaking) return;
+
+      const state = activeDetectedState;
+      let phrase = "";
+
+      if (!state || state === "CLEAR_PATH") {
+        phrase = "Camino libre";
+        statusText.textContent = "🟢 CAMINO LIBRE";
+        statusText.className = "text-3xl sm:text-6xl font-black text-green-400 tracking-tight";
+        statusBox.className = "alert-card-clear rounded-3xl p-6 sm:p-8 text-center shadow-2xl transition-all";
+        substatusText.textContent = "No se observan obstáculos cercanos.";
+      } else {
+        const lower = state.toLowerCase().trim();
+
+        // Frases ultracortas y directas para salvar tiempo crítico de reacción
+        if (lower.includes("silla")) {
+          phrase = "¡Cuidado, silla!";
+        } else if (lower.includes("persona")) {
+          phrase = "¡Cuidado, persona!";
+        } else if (lower.includes("mesa")) {
+          phrase = "¡Cuidado, mesa!";
+        } else if (lower.includes("pared")) {
+          phrase = "¡Cuidado, pared!";
+        } else {
+          phrase = `¡Cuidado, ${state}!`;
+        }
+
+        statusText.textContent = phrase.toUpperCase();
+        statusText.className = "text-3xl sm:text-6xl font-black text-red-100 tracking-tight";
+        statusBox.className = "alert-card-warning pulse-danger rounded-3xl p-6 sm:p-8 text-center shadow-2xl transition-all";
+        substatusText.textContent = `Obstáculo detectado frente a ti.`;
+      }
+
+      if ('speechSynthesis' in window) {
+        isSpeaking = true;
+        const utterance = new SpeechSynthesisUtterance(phrase);
+        utterance.lang = 'es-ES';
+
+        // Velocidad acelerada configurada por el usuario (por defecto 1.3x)
+        const rateVal = parseFloat(selectRate.value) || 1.3;
+        utterance.rate = rateVal;
+        utterance.pitch = 1.05;
+
+        utterance.onend = () => {
+          isSpeaking = false;
+          if (isRunning) {
+            // Tiempo de re-alerta corto (por defecto 0.6s)
+            const cooldown = parseInt(selectCooldown.value, 10) || 600;
+            speechLoopTimeout = setTimeout(() => {
+              // Beep rápido si el obstáculo persiste
+              if (activeDetectedState !== "CLEAR_PATH") {
+                playInstantBeep(750, 0.05);
+              }
+              speakCurrentAlert();
+            }, cooldown);
+          }
+        };
+
+        utterance.onerror = () => {
+          isSpeaking = false;
+        };
+
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    /**
+     * Emite un mensaje de audio del sistema
+     */
+    function speakTextImmediate(text) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'es-ES';
+        utterance.rate = 1.2;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    /**
+     * Modifica el umbral de sensibilidad de detección
+     */
+    function updateThreshold(val) {
+      currentThreshold = parseFloat(val) || 0.60;
+    }
+
+    /**
+     * Cambia de cámara (Frontal / Trasera)
+     */
+    async function switchCamera() {
+      currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+      stopAssistant();
+      setTimeout(() => {
+        initAssistant();
+      }, 350);
+    }
+
+    /**
+     * Apaga el asistente
+     */
+    function stopAssistant() {
+      isRunning = false;
+      activeDetectedState = null;
+
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      if (speechLoopTimeout) {
+        clearTimeout(speechLoopTimeout);
+      }
+
+      if (webcam) {
+        webcam.stop();
+      }
+
+      btnStart.textContent = "▶️ INICIAR ASISTENTE";
+      btnStart.classList.replace('bg-red-600', 'bg-yellow-400');
+      btnStart.classList.replace('hover:bg-red-500', 'hover:bg-yellow-300');
+      btnStart.classList.replace('text-white', 'text-slate-950');
+
+      btnSwitchCamera.classList.add('hidden');
+      liveBadge.classList.add('hidden');
+
+      webcamContainer.innerHTML = `
+        <p class="text-slate-500 text-center p-4 font-medium">
+          Cámara apagada.
+        </p>`;
+
+      labelContainer.innerHTML = '<p class="text-slate-500 text-sm italic">Esperando inicio...</p>';
+      statusText.textContent = "ASISTENTE DETENIDO";
+      statusText.className = "text-3xl sm:text-6xl font-black text-sky-300 tracking-tight";
+      statusBox.className = "bg-slate-900 border-4 border-sky-400 rounded-3xl p-6 sm:p-8 text-center shadow-2xl transition-all";
+      substatusText.textContent = "Presiona 'INICIAR ASISTENTE' para encender de nuevo.";
+    }
+  </script>
+</body>
+</html
